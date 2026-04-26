@@ -1,0 +1,366 @@
+---
+title: "Proj"
+output:
+  pdf_document: default
+  html_document: default
+date: "2026-04-25"
+---
+
+
+```{r}
+install.packages('COVID19')
+
+```
+
+```{r}
+
+library(tidyverse)
+library(COVID19)
+
+df <- covid19(level = 2)
+```
+
+```{r}
+colnames(df)
+```
+```{r}
+df_clean <- df %>%
+  filter(iso_alpha_3 == "USA") %>%
+  filter(!is.na(administrative_area_level_2)) %>%
+  select(
+    date,
+    state = administrative_area_level_2,
+    deaths,
+    confirmed,
+    population
+  )
+```
+
+```{r}
+df_cleaner <- df_clean %>%
+  filter(!state %in% c("Puerto Rico","Northern Mariana Islands", "Virgin Islands", "American Samoa"))
+
+head(df_cleaner)
+
+```
+
+```{r}
+library(tidyverse)
+
+elections <- tribble(
+  ~state, ~margin_2016, ~margin_2020,
+  "alabama", -27.7, -25.5,
+  "alaska", -14.7, -10.1,
+  "arizona", -3.5, 0.3,
+  "arkansas", -26.9, -27.6,
+  "california", 30.1, 29.2,
+  "colorado", 4.9, 13.5,
+  "connecticut", 13.6, 20.1,
+  "delaware", 11.4, 19.0,
+  "florida", -1.2, -3.4,
+  "georgia", -5.1, 0.2,
+  "hawaii", 32.2, 29.5,
+  "idaho", -31.8, -30.8,
+  "illinois", 17.1, 16.9,
+  "indiana", -19.2, -16.1,
+  "iowa", -9.4, -8.2,
+  "kansas", -20.6, -14.7,
+  "kentucky", -29.8, -25.9,
+  "louisiana", -19.6, -18.6,
+  "maine", 2.9, 9.1,
+  "maryland", 26.4, 33.2,
+  "massachusetts", 27.2, 33.5,
+  "michigan", -0.2, 2.8,
+  "minnesota", 1.5, 7.1,
+  "mississippi", -17.8, -16.5,
+  "missouri", -18.5, -15.4,
+  "montana", -20.2, -16.4,
+  "nebraska", -25.0, -19.1,
+  "nevada", 2.4, 2.4,
+  "new hampshire", 0.4, 7.4,
+  "new jersey", 14.1, 15.9,
+  "new mexico", 8.2, 10.8,
+  "new york", 21, 23.1,
+  "north carolina", -3.7, -1.3,
+  "north dakota", -35.7, -33.4,
+  "ohio", -8.1, -8.0,
+  "oklahoma", -36.4, -33.1,
+  "oregon", 11.0, 16.1,
+  "pennsylvania", -0.7, 1.2,
+  "rhode island", 15.5, 20.8,
+  "south carolina", -14.3, -11.7,
+  "south dakota", -29.8, -26.2,
+  "tennessee", -26.0, -23.2,
+  "texas", -9.0, -5.6,
+  "utah", -18.1, -20.5,
+  "vermont", 26.4, 35.4,
+  "virginia", 5.3, 10.1,
+  "washington", 16.2, 19.2,
+  "west virginia", -42.1, -38.9,
+  "wisconsin", -0.8, 0.6,
+  "wyoming", -46.3, -43.4
+)
+
+elections_change <- elections %>%
+  mutate(
+    shift_16_20 = margin_2020 - margin_2016,
+    shift_cat = case_when(
+      shift_16_20 > 1 ~ "Shifted Democratic >1%",
+      shift_16_20 < -1 ~ "Shifted Republican >1%",
+      TRUE ~ "Small Change"
+    )
+  )
+change_map_df <- map_data("state") %>%
+  left_join(elections_change, by = c("region" = "state"))
+```
+
+```{r}
+library(lubridate)
+library(maps)
+library(patchwork)
+
+covid_2020_election <- df_cleaner %>%
+  filter(date <= as.Date("2020-11-03")) %>%
+  group_by(state) %>%
+  slice_max(date, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(
+    state = tolower(state),
+    deaths_per_100k = deaths / population * 100000
+  ) %>%
+  select(state, date, deaths, population, deaths_per_100k)
+
+```
+
+```{r}
+states_map <- map_data("state")
+
+map_df <- states_map %>%
+  left_join(elections, by = c("region" = "state")) %>%
+  left_join(covid_2020_election, by = c("region" = "state"))
+```
+
+```{r}
+map_2016 <- ggplot(map_df, aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = margin_2016), color = "white", linewidth = 0.2) +
+  coord_fixed(1.3) +
+  scale_fill_gradient2(
+    low = "red",
+    mid = "white",
+    high = "blue",
+    midpoint = 0,
+    limits = c(-50, 50),   # makes legend consistent and readable
+    name = "2016\nPolitical Margin"
+  ) +
+  labs(title = "2016 Political Leaning") +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 9),
+    legend.text = element_text(size = 8)
+  )
+map_deaths <- ggplot(map_df, aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = deaths_per_100k), color = "white", linewidth = 0.2) +
+  coord_fixed(1.3) +
+  scale_fill_viridis_c() +
+  labs(
+    title = "COVID Deaths up to 2020 Election Day",
+    fill = "Deaths\nper 100k"
+  ) +
+  theme_void()
+
+
+map_2020 <- ggplot(map_df, aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = margin_2020), color = "white", linewidth = 0.2) +
+  coord_fixed(1.3) +
+  scale_fill_gradient2(
+    low = "red",
+    mid = "white",
+    high = "blue",
+    midpoint = 0
+  ) +
+  labs(
+    title = "2020 Election Margin",
+    fill = "Democratic\nMargin"
+  ) +
+  theme_void()
+
+shift_map_df <- change_map_df %>%
+  mutate(
+    shift_display = if_else(abs(shift_16_20) >= 1, shift_16_20, NA_real_)
+  )
+
+map_shift <- ggplot(shift_map_df, aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = shift_display), color = "white", linewidth = 0.2) +
+  coord_fixed(1.3) +
+scale_fill_gradient2(
+  low = "darkred",
+  mid = "white",
+  high = "blue",
+  midpoint = 0,
+  limits = c(-10, 10),
+  na.value = "gray80",
+  name = "2016 → 2020\nShift (%)"
+) +
+  labs(
+    title = "Political Shifts ≥ 1%",
+    subtitle = "Gray states shifted less than 1%"
+  ) +
+  theme_void()
+```
+
+
+```{r, fig.width=15, fig.height=6}
+
+final_plot <- map_2016 + map_deaths + map_shift +
+  plot_layout(ncol = 3) +
+  plot_annotation(
+    title = "Political Leaning, COVID Deaths, and Electoral Change",
+    subtitle = "2016 election margin, COVID deaths up to Nov. 3, 2020, and political shifts from 2016 to 2020",
+    caption = "COVID data from the COVID19 R package. Election margins compiled from Wikipedia presidential election results."
+  ) &
+  theme(
+    plot.title = element_text(size = 14),
+    plot.subtitle = element_text(size = 11),
+    plot.caption = element_text(size = 9)
+  )
+
+final_plot
+```
+
+
+```{r}
+df_cleaner %>%
+  filter(state == "Maryland") %>%
+  arrange(date) %>%
+  select(date, deaths) %>%
+  head(10)
+
+
+df_cleaner %>%
+  filter(state == "Maryland") %>%
+  arrange(date) %>%
+  select(date, deaths) %>%
+  tail(10)
+```
+
+
+```{r}
+election_day <- as.Date("2020-11-03")
+```
+
+```{r}
+# Get each state's cumulative deaths on Election Day
+baseline_deaths <- df_cleaner %>%
+  filter(date <= election_day) %>%
+  group_by(state) %>%
+  slice_max(date, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  transmute(
+    state = tolower(state),
+    baseline_deaths = deaths,
+    population = population
+  )
+```
+
+
+```{r}
+# Monthly cumulative deaths after Election Day
+monthly_deaths <- df_cleaner %>%
+  filter(date > election_day) %>%
+  mutate(
+    state = tolower(state),
+    month = floor_date(date, "month")
+  ) %>%
+  group_by(state, month) %>%
+  slice_max(date, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(state, month, deaths)
+```
+
+
+```{r}
+# Convert cumulative deaths into deaths added each month
+monthly_analysis <- monthly_deaths %>%
+  left_join(baseline_deaths, by = "state") %>%
+  left_join(elections, by = "state") %>%
+  arrange(state, month) %>%
+  group_by(state) %>%
+  mutate(
+    monthly_deaths = deaths - lag(deaths, default = first(baseline_deaths)),
+    monthly_deaths_per_100k = monthly_deaths / population * 100000,
+    margin_bracket = case_when(
+      margin_2020 <= -10 ~ "Strong Republican",
+      margin_2020 > -10 & margin_2020 <= -2 ~ "Lean Republican",
+      margin_2020 > -2 & margin_2020 < 2 ~ "Competitive",
+      margin_2020 >= 2 & margin_2020 < 10 ~ "Lean Democratic",
+      margin_2020 >= 10 ~ "Strong Democratic"
+    )
+  ) %>%
+  ungroup()
+
+```
+
+```{r, fig.width=10,fig.height=8}
+library(stringr)
+
+party_colors <- c(
+  "Strong Democratic (≥10%)" = "blue",
+  "Lean Democratic (2% to 10%)" = "deepskyblue",
+  "Competitive (-2% to 2%)" = "purple",
+  "Lean Republican (-10% to -2%)" = "lightcoral",
+  "Strong Republican (≤-10%)" = "red"
+)
+
+
+monthly_summary_plot <- monthly_summary %>%
+  mutate(
+    margin_label = recode(margin_bracket,
+      "Strong Democratic" = "Strong Democratic (≥10%)",
+      "Lean Democratic"   = "Lean Democratic (2% to 10%)",
+      "Competitive"       = "Competitive (-2% to 2%)",
+      "Lean Republican"   = "Lean Republican (-10% to -2%)",
+      "Strong Republican" = "Strong Republican (≤-10%)"
+    )
+  )
+
+caption_text <- str_wrap(
+  "Each panel shows the average monthly COVID-19 deaths per 100,000 people for U.S. states from November 2020 onward. Death rates are computed at the state level and then averaged within each political group. Colors reflect political alignment: blue tones for Democratic-leaning states, purple for competitive states, and red tones for Republican-leaning states.",
+  width = 100
+)
+
+
+ggplot(monthly_summary_plot,
+       aes(x = month, y = avg_deaths_per_100k, color = margin_label)) +
+  geom_line(linewidth = 1.2) +
+  facet_wrap(~margin_label, ncol = 1) +
+  scale_color_manual(values = party_colors) +
+  scale_x_date(
+  limits = c(as.Date("2020-11-01"), as.Date("2023-02-01")),
+  date_breaks = "3 months",
+  date_labels = "%b\n%Y"
+) +
+  labs(
+    title = "Average Monthly COVID Death Rates After the 2020 Election",
+    subtitle = "States grouped by 2020 presidential margin",
+    x = "Month",
+    y = "Average Monthly Deaths per 100k",
+    caption = caption_text
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 11, face = "bold"),
+    legend.position = "none",
+    plot.caption = element_text(size = 8, hjust = 0)
+  )
+```
+
+
+
+
+
+
+
+##meow
